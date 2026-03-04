@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import Navbar from '@/components/Navbar';
@@ -10,8 +10,11 @@ import { Button } from '@/components/ui/button';
 const PostDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const location = useLocation();
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  const autoShowComments = location.hash === '#comments';
 
   const fetchPost = useCallback(async () => {
     if (!id) return;
@@ -22,9 +25,6 @@ const PostDetail = () => {
       .single();
 
     if (!data) { setLoading(false); return; }
-
-    // Increment view
-    supabase.rpc('increment_post_views', { post_ids: [id] }).then();
 
     const { data: likesData } = await supabase
       .from('likes')
@@ -40,7 +40,6 @@ const PostDetail = () => {
       ...data,
       author: data.author,
       image_urls: (data as any).image_urls || [],
-      views: (data as any).views || 0,
       likes_count: likesData?.length || 0,
       comments_count: commentsData?.length || 0,
       user_liked: user ? likesData?.some(l => l.user_id === user.id) || false : false,
@@ -64,7 +63,7 @@ const PostDetail = () => {
         {loading ? (
           <p className="text-center text-muted-foreground">Loading...</p>
         ) : post ? (
-          <PostCard post={post} onUpdate={fetchPost} />
+          <PostCard post={post} onUpdate={fetchPost} expanded autoShowComments={autoShowComments} />
         ) : (
           <p className="text-center text-muted-foreground">Post not found</p>
         )}

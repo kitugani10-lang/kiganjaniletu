@@ -19,7 +19,7 @@ interface Props {
 }
 
 const MAX_CHARS = 25000;
-const MAX_IMAGES = 4;
+const MAX_IMAGES = 2;
 const MAX_VIDEO_MB = 50;
 
 const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
@@ -36,10 +36,15 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  // Users can add images OR video, not both
+  const hasVideo = !!videoFile;
+  const hasImages = images.length > 0;
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (hasVideo) { toast.error('Remove video first to add photos'); return; }
     const files = Array.from(e.target.files || []);
     const remaining = MAX_IMAGES - images.length;
-    if (files.length > remaining) toast.error(`You can only add ${remaining} more image(s)`);
+    if (files.length > remaining) toast.error(`You can only add ${remaining} more photo(s)`);
     const selected = files.slice(0, remaining);
     const newPreviews = selected.map((f) => URL.createObjectURL(f));
     setImages((prev) => [...prev, ...selected]);
@@ -48,6 +53,7 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
   };
 
   const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (hasImages) { toast.error('Remove photos first to add a video'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
@@ -81,14 +87,12 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
     try {
       const mediaKeys: string[] = [];
 
-      // Upload images (compressed)
       for (const img of images) {
         const compressed = await compressImage(img);
         const key = await uploadToR2(compressed);
         mediaKeys.push(key);
       }
 
-      // Upload video
       if (videoFile) {
         const key = await uploadToR2(videoFile);
         mediaKeys.push(key);
@@ -98,7 +102,7 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
         title: title.trim(),
         content: content.trim(),
         author_id: user!.id,
-        image_urls: mediaKeys, // now stores R2 keys instead of URLs
+        image_urls: mediaKeys,
         category,
       });
       if (error) throw error;
@@ -116,7 +120,6 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
     }
   };
 
-  // Bold/italic helpers
   const insertFormatting = (wrapper: string) => {
     const textarea = document.querySelector<HTMLTextAreaElement>('#post-content-area');
     if (!textarea) return;
@@ -193,16 +196,18 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
           <div className="flex items-center gap-2">
             <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleImageSelect} className="hidden" />
             <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}
-              disabled={images.length >= MAX_IMAGES} className="gap-1.5">
+              disabled={images.length >= MAX_IMAGES || hasVideo} className="gap-1.5">
               <ImagePlus className="h-4 w-4" /> Photos ({images.length}/{MAX_IMAGES})
             </Button>
 
             <input ref={videoInputRef} type="file" accept="video/mp4,video/webm,video/quicktime" onChange={handleVideoSelect} className="hidden" />
             <Button type="button" variant="outline" size="sm" onClick={() => videoInputRef.current?.click()}
-              disabled={!!videoFile} className="gap-1.5">
+              disabled={!!videoFile || hasImages} className="gap-1.5">
               <Video className="h-4 w-4" /> {videoFile ? 'Video added' : 'Add Video'}
             </Button>
           </div>
+
+          <p className="text-xs text-muted-foreground">You can attach up to 2 photos or 1 video (max {MAX_VIDEO_MB}MB), not both.</p>
 
           <Button onClick={handleSubmit} disabled={loading} className="w-full">
             {loading ? 'Publishing...' : 'Publish Post'}

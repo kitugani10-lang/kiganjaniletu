@@ -7,8 +7,7 @@ import CreatePostDialog from '@/components/CreatePostDialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Search, BarChart3 } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 interface PostData {
   id: string;
@@ -21,7 +20,6 @@ interface PostData {
   user_liked: boolean;
   image_urls?: string[];
   category?: string;
-  views?: number;
 }
 
 const POSTS_PER_PAGE = 30;
@@ -32,7 +30,6 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [visibleCount, setVisibleCount] = useState(POSTS_PER_PAGE);
-  const [stats, setStats] = useState({ posts: 0, threads: 0 });
 
   const fetchPosts = useCallback(async () => {
     const { data: postsData } = await supabase
@@ -42,22 +39,14 @@ const Index = () => {
 
     if (!postsData) { setLoading(false); return; }
 
-    let postCount = 0, threadCount = 0;
-    postsData.forEach(p => { if (p.content.length <= 500) postCount++; else threadCount++; });
-    setStats({ posts: postCount, threads: threadCount });
-
     const postIds = postsData.map(p => p.id);
-    if (postIds.length > 0) {
-      const visibleIds = postIds.slice(0, POSTS_PER_PAGE);
-      supabase.rpc('increment_post_views', { post_ids: visibleIds }).then();
-    }
 
     const { data: likesData } = await supabase.from('likes').select('post_id, user_id').in('post_id', postIds.length > 0 ? postIds : ['none']);
     const { data: commentsData } = await supabase.from('comments').select('post_id').in('post_id', postIds.length > 0 ? postIds : ['none']);
 
     const enriched: PostData[] = postsData.map((p: any) => ({
       id: p.id, title: p.title, content: p.content, created_at: p.created_at,
-      author: p.author, image_urls: p.image_urls || [], category: p.category, views: p.views || 0,
+      author: p.author, image_urls: p.image_urls || [], category: p.category,
       likes_count: likesData?.filter(l => l.post_id === p.id).length || 0,
       comments_count: commentsData?.filter(c => c.post_id === p.id).length || 0,
       user_liked: user ? likesData?.some(l => l.post_id === p.id && l.user_id === user.id) || false : false,
@@ -75,7 +64,6 @@ const Index = () => {
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
-  // Real-time subscription for new/updated/deleted posts
   useEffect(() => {
     const channel = supabase
       .channel('public:posts')
@@ -83,16 +71,8 @@ const Index = () => {
         fetchPosts();
       })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [fetchPosts]);
-
-  useEffect(() => {
-    if (posts.length > 0 && visibleCount > POSTS_PER_PAGE) {
-      const newIds = posts.slice(visibleCount - POSTS_PER_PAGE, visibleCount).map(p => p.id);
-      if (newIds.length > 0) supabase.rpc('increment_post_views', { post_ids: newIds }).then();
-    }
-  }, [visibleCount, posts]);
 
   const filtered = search.trim()
     ? posts.filter(p => p.title.toLowerCase().includes(search.toLowerCase()) || p.content.toLowerCase().includes(search.toLowerCase()))
@@ -137,25 +117,6 @@ const Index = () => {
             </>
           )}
         </div>
-
-        <Card className="mt-8 shadow-card">
-          <CardContent className="py-6">
-            <div className="flex items-center gap-2 mb-4">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-bold" style={{ fontFamily: 'var(--font-heading)' }}>Kanisa Kiganjani Stats</h2>
-            </div>
-            <div className="flex gap-8">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-primary">{stats.posts.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Posts</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-primary">{stats.threads.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Threads</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </main>
     </div>
   );

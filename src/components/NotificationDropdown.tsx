@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Bell } from 'lucide-react';
@@ -22,6 +23,7 @@ interface Notification {
 
 const NotificationDropdown = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -63,6 +65,16 @@ const NotificationDropdown = () => {
     fetchNotifications();
   };
 
+  const handleClick = async (n: Notification) => {
+    // Mark as read
+    if (!n.read) {
+      await supabase.from('notifications').update({ read: true }).eq('id', n.id);
+      fetchNotifications();
+    }
+    setOpen(false);
+    navigate(`/post/${n.post_id}#comments`);
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
@@ -91,9 +103,10 @@ const NotificationDropdown = () => {
             <p className="p-4 text-center text-sm text-muted-foreground">No notifications yet</p>
           ) : (
             notifications.map((n) => (
-              <div
+              <button
                 key={n.id}
-                className={`border-b p-3 text-sm ${!n.read ? 'bg-secondary/50' : ''}`}
+                onClick={() => handleClick(n)}
+                className={`w-full text-left border-b p-3 text-sm hover:bg-accent/50 transition-colors ${!n.read ? 'bg-secondary/50' : ''}`}
               >
                 <p>
                   <span className="font-semibold">{n.actor?.username}</span>{' '}
@@ -103,7 +116,7 @@ const NotificationDropdown = () => {
                 <p className="text-xs text-muted-foreground mt-1">
                   {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
                 </p>
-              </div>
+              </button>
             ))
           )}
         </div>

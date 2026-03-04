@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useModRole } from '@/hooks/useModRole';
 import { useMediaUrls } from '@/hooks/useMediaUrls';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Heart, MessageCircle, Share2, Send, Bookmark, BookmarkCheck, Eye, Pencil, Trash2, X, Check, Flag } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Send, Bookmark, BookmarkCheck, Pencil, Trash2, X, Check, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { CATEGORIES } from '@/lib/categories';
@@ -24,7 +25,6 @@ interface Post {
   user_liked: boolean;
   image_urls?: string[];
   category?: string;
-  views?: number;
 }
 
 interface Comment {
@@ -34,14 +34,22 @@ interface Comment {
   author: { id: string; username: string };
 }
 
-const canEdit = (createdAt: string) => {
+const PREVIEW_LENGTH = 200;
+
+const canEditTime = (createdAt: string) => {
   return (Date.now() - new Date(createdAt).getTime()) < 12 * 60 * 60 * 1000;
 };
 
-const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
+const canDeleteTime = (createdAt: string) => {
+  return (Date.now() - new Date(createdAt).getTime()) < 48 * 60 * 60 * 1000;
+};
+
+const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }: { post: Post; onUpdate: () => void; expanded?: boolean; autoShowComments?: boolean }) => {
   const { user } = useAuth();
+  const { hasRole: isMod } = useModRole();
   const { urls: mediaUrls } = useMediaUrls(post.image_urls);
-  const [showComments, setShowComments] = useState(false);
+  const navigate = useNavigate();
+  const [showComments, setShowComments] = useState(autoShowComments);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComment, setLoadingComment] = useState(false);
@@ -54,6 +62,7 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
 
   const categoryInfo = CATEGORIES.find(c => c.slug === post.category);
   const isAuthor = user?.id === post.author.id;
+  const needsTruncation = !expanded && post.content.length > PREVIEW_LENGTH;
 
   useEffect(() => {
     if (user) {
@@ -67,7 +76,7 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
       .from('comments')
       .select('*, author:profiles!comments_author_id_fkey(id, username)')
       .eq('post_id', post.id)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
     if (data) setComments(data as any);
   };
 
@@ -205,6 +214,18 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
     } catch { toast.error('Failed to submit report'); }
   };
 
+  const canEditPost = isMod || (isAuthor && canEditTime(post.created_at));
+  const canDeletePost = isMod || (isAuthor && canDeleteTime(post.created_at));
+
+  const renderContent = () => {
+    const raw = needsTruncation ? post.content.slice(0, PREVIEW_LENGTH) + '…' : post.content;
+    const html = raw
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>');
+    return html;
+  };
+
   const authorDisplay = (
     <div className="flex items-center gap-2">
       {user ? (
@@ -238,16 +259,18 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
             {categoryInfo && (
               <Badge variant="secondary" className="text-xs">{categoryInfo.label}</Badge>
             )}
-            {isAuthor && (
+            {(canEditPost || canDeletePost) && (
               <div className="flex items-center gap-1">
-                {canEdit(post.created_at) && (
+                {canEditPost && (
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingPost(true); setEditTitle(post.title); setEditContent(post.content); }}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeletePost}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {canDeletePost && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={handleDeletePost}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -267,17 +290,20 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
       </CardHeader>
       <CardContent className="space-y-3">
         {!editingPost && (
-          <p className="text-foreground/90 whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{
-              __html: post.content
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            }}
-          />
+          <>
+            <p className="text-foreground/90 whitespace-pre-wrap"
+              dangerouslySetInnerHTML={{ __html: renderContent() }}
+            />
+            {needsTruncation && (
+              <Link to={`/post/${post.id}`} className="text-primary text-sm font-medium hover:underline">
+                Read more
+              </Link>
+            )}
+          </>
         )}
 
-        {mediaUrls.length > 0 && (
+        {/* Only show media in expanded view */}
+        {expanded && mediaUrls.length > 0 && (
           <div className={`grid gap-2 ${mediaUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {mediaUrls.map((url, i) => {
               const isVideo = url.includes('.mp4') || url.includes('.webm') || url.includes('.mov') || url.includes('video');
@@ -299,10 +325,6 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
             <MessageCircle className="h-4 w-4" />
             {post.comments_count}
           </Button>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground px-2">
-            <Eye className="h-3.5 w-3.5" />
-            {post.views || 0}
-          </span>
           <Button variant="ghost" size="sm" onClick={handleShare} className="gap-1.5">
             <Share2 className="h-4 w-4" />
           </Button>
@@ -324,6 +346,8 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
           <div className="space-y-3 pt-2 border-t">
             {comments.map((c) => {
               const isCommentAuthor = user?.id === c.author.id;
+              const canEditComment = isMod || (isCommentAuthor && canEditTime(c.created_at));
+              const canDeleteComment = isMod || (isCommentAuthor && canDeleteTime(c.created_at));
               return (
                 <div key={c.id} className="flex gap-2">
                   {user ? (
@@ -345,18 +369,17 @@ const PostCard = ({ post, onUpdate }: { post: Post; onUpdate: () => void }) => {
                         <span className="text-xs font-semibold">{c.author.username}</span>
                       )}
                       <div className="flex items-center gap-1">
-                        {isCommentAuthor ? (
-                          <>
-                            {canEdit(c.created_at) && (
-                              <button onClick={() => { setEditingCommentId(c.id); setEditCommentContent(c.content); }} className="text-muted-foreground hover:text-foreground">
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                            <button onClick={() => handleDeleteComment(c.id)} className="text-muted-foreground hover:text-destructive">
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          </>
-                        ) : user && (
+                        {canEditComment && (
+                          <button onClick={() => { setEditingCommentId(c.id); setEditCommentContent(c.content); }} className="text-muted-foreground hover:text-foreground">
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
+                        {canDeleteComment && (
+                          <button onClick={() => handleDeleteComment(c.id)} className="text-muted-foreground hover:text-destructive">
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                        {user && !isCommentAuthor && !isMod && (
                           <button onClick={() => handleReportComment(c.id)} className="text-muted-foreground hover:text-destructive">
                             <Flag className="h-3 w-3" />
                           </button>

@@ -79,7 +79,7 @@ const Profile = () => {
 
     const enriched = postsData.map((p: any) => ({
       id: p.id, title: p.title, content: p.content, created_at: p.created_at,
-      author: p.author, image_urls: p.image_urls || [], category: p.category, views: p.views || 0,
+      author: p.author, image_urls: p.image_urls || [], category: p.category,
       likes_count: likesData?.filter(l => l.post_id === p.id).length || 0,
       comments_count: commentsData?.filter(c => c.post_id === p.id).length || 0,
       user_liked: user ? likesData?.some(l => l.post_id === p.id && l.user_id === user.id) || false : false,
