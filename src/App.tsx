@@ -13,6 +13,7 @@ import Profile from "./pages/Profile";
 import Bookmarks from "./pages/Bookmarks";
 import CategoryFeed from "./pages/CategoryFeed";
 import NotFound from "./pages/NotFound";
+import Moderation from "./pages/Moderation";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ const App = () => (
                   <Route path="/profile/:id" element={<Profile />} />
                   <Route path="/bookmarks" element={<Bookmarks />} />
                   <Route path="/category/:slug" element={<CategoryFeed />} />
+                  <Route path="/moderation" element={<Moderation />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </div>

@@ -1,10 +1,11 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useModRole } from '@/hooks/useModRole';
 import { NavLink } from '@/components/NavLink';
+import { ContactDialog } from '@/components/ContactDialog';
 import { CATEGORIES } from '@/lib/categories';
-import { Home, Bookmark, LogOut, LogIn, Mail } from 'lucide-react';
+import { Home, Bookmark, LogOut, LogIn, Mail, Shield } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { toast } from 'sonner';
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
   SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
@@ -12,14 +13,9 @@ import {
 
 export function AppSidebar() {
   const { user, signOut } = useAuth();
+  const { hasRole } = useModRole();
   const { state } = useSidebar();
   const collapsed = state === 'collapsed';
-
-  const handleContact = () => {
-    if (!user) { toast.error('Please sign in to see contact info'); return; }
-    navigator.clipboard.writeText('support@kanisakiganjani.com');
-    toast.success('Email copied: support@kanisakiganjani.com');
-  };
 
   return (
     <Sidebar collapsible="icon">
@@ -72,14 +68,16 @@ export function AppSidebar() {
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <button onClick={handleContact} className="flex w-full items-center hover:bg-muted/50 px-2 py-1.5 rounded-md text-sm">
-                        <Mail className="mr-2 h-4 w-4" />
-                        {!collapsed && <span>Contact Us</span>}
-                      </button>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {hasRole && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <NavLink to="/moderation" className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                          <Shield className="mr-2 h-4 w-4" />
+                          {!collapsed && <span>Moderation</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild>
                       <button onClick={signOut} className="flex w-full items-center hover:bg-muted/50 px-2 py-1.5 rounded-md text-sm">
@@ -99,6 +97,16 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
+              <SidebarMenuItem>
+                <ContactDialog
+                  trigger={
+                    <SidebarMenuButton className="cursor-pointer">
+                      <Mail className="mr-2 h-4 w-4" />
+                      {!collapsed && <span>Contact Us</span>}
+                    </SidebarMenuButton>
+                  }
+                />
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <ThemeToggle collapsed={collapsed} />
