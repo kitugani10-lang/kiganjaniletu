@@ -4,7 +4,7 @@ import { useModRole } from '@/hooks/useModRole';
 import { NavLink } from '@/components/NavLink';
 import { ContactDialog } from '@/components/ContactDialog';
 import { CATEGORIES } from '@/lib/categories';
-import { Home, Bookmark, LogOut, LogIn, Mail, Shield } from 'lucide-react';
+import { Home, Bookmark, LogOut, LogIn, Mail, Shield, FileText } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
@@ -106,6 +106,14 @@ export function AppSidebar() {
                     </SidebarMenuButton>
                   }
                 />
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <NavLink to="/privacy" className="hover:bg-muted/50" activeClassName="bg-muted text-primary font-medium">
+                    <FileText className="mr-2 h-4 w-4" />
+                    {!collapsed && <span>Privacy Policy</span>}
+                  </NavLink>
+                </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>

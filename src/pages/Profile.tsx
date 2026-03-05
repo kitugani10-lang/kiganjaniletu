@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { uploadToR2, compressImage } from '@/lib/r2Upload';
+import { uploadFile, compressImage } from '@/lib/supabaseStorage';
 import Navbar from '@/components/Navbar';
 import PostCard from '@/components/PostCard';
 import { Button } from '@/components/ui/button';
@@ -101,8 +101,7 @@ const Profile = () => {
       let avatar_url = profile?.avatar_url;
       if (avatarFile) {
         const compressed = await compressImage(avatarFile);
-        const key = await uploadToR2(compressed);
-        avatar_url = key;
+        avatar_url = await uploadFile(compressed);
       }
       const { error } = await supabase.from('profiles').update({
         username: form.username.trim(),

@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useModRole } from '@/hooks/useModRole';
-import { useMediaUrls } from '@/hooks/useMediaUrls';
+import { uploadFile, compressImage } from '@/lib/supabaseStorage';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Heart, MessageCircle, Share2, Send, Bookmark, BookmarkCheck, Pencil, Trash2, X, Check, Flag } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Send, Bookmark, BookmarkCheck, Pencil, Trash2, X, Check, Flag, Reply, ImagePlus, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { CATEGORIES } from '@/lib/categories';
@@ -32,9 +32,12 @@ interface Comment {
   content: string;
   created_at: string;
   author: { id: string; username: string };
+  parent_comment_id: string | null;
+  media_url: string | null;
 }
 
 const PREVIEW_LENGTH = 200;
+const MAX_COMMENT_CHARS = 1000;
 
 const canEditTime = (createdAt: string) => {
   return (Date.now() - new Date(createdAt).getTime()) < 12 * 60 * 60 * 1000;
@@ -47,7 +50,6 @@ const canDeleteTime = (createdAt: string) => {
 const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }: { post: Post; onUpdate: () => void; expanded?: boolean; autoShowComments?: boolean }) => {
   const { user } = useAuth();
   const { hasRole: isMod } = useModRole();
-  const { urls: mediaUrls } = useMediaUrls(post.image_urls);
   const navigate = useNavigate();
   const [showComments, setShowComments] = useState(autoShowComments);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -59,6 +61,11 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
   const [editContent, setEditContent] = useState(post.content);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editCommentContent, setEditCommentContent] = useState('');
+  const [replyToId, setReplyToId] = useState<string | null>(null);
+  const [replyToUsername, setReplyToUsername] = useState('');
+  const [commentMedia, setCommentMedia] = useState<File | null>(null);
+  const [commentMediaPreview, setCommentMediaPreview] = useState<string | null>(null);
+  const commentFileRef = useRef<HTMLInputElement>(null);
 
   const categoryInfo = CATEGORIES.find(c => c.slug === post.category);
   const isAuthor = user?.id === post.author.id;
@@ -101,14 +108,52 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
     } catch { toast.error('Failed to update like'); }
   };
 
+  const removeCommentMedia = () => {
+    if (commentMediaPreview) URL.revokeObjectURL(commentMediaPreview);
+    setCommentMedia(null);
+    setCommentMediaPreview(null);
+  };
+
+  const handleCommentMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File must be under 50MB');
+      return;
+    }
+    removeCommentMedia();
+    setCommentMedia(file);
+    setCommentMediaPreview(URL.createObjectURL(file));
+    if (commentFileRef.current) commentFileRef.current.value = '';
+  };
+
   const handleComment = async () => {
     if (!user) { toast.error('Please sign in to comment'); return; }
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && !commentMedia) return;
+    if (newComment.length > MAX_COMMENT_CHARS) { toast.error(`Comment must be under ${MAX_COMMENT_CHARS} characters`); return; }
     setLoadingComment(true);
     try {
+      let media_url: string | null = null;
+      if (commentMedia) {
+        if (commentMedia.type.startsWith('image/')) {
+          const compressed = await compressImage(commentMedia);
+          media_url = await uploadFile(compressed);
+        } else {
+          media_url = await uploadFile(commentMedia);
+        }
+      }
+
+      const insertData: any = {
+        post_id: post.id,
+        author_id: user.id,
+        content: newComment.trim(),
+        media_url,
+      };
+      if (replyToId) insertData.parent_comment_id = replyToId;
+
       const { data, error } = await supabase
         .from('comments')
-        .insert({ post_id: post.id, author_id: user.id, content: newComment.trim() })
+        .insert(insertData)
         .select('id').single();
       if (error) throw error;
       if (post.author.id !== user.id) {
@@ -117,6 +162,9 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
         });
       }
       setNewComment('');
+      setReplyToId(null);
+      setReplyToUsername('');
+      removeCommentMedia();
       fetchComments();
       onUpdate();
     } catch { toast.error('Failed to post comment'); }
@@ -179,6 +227,7 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
 
   const handleSaveCommentEdit = async (commentId: string) => {
     if (!editCommentContent.trim()) return;
+    if (editCommentContent.length > MAX_COMMENT_CHARS) { toast.error(`Comment must be under ${MAX_COMMENT_CHARS} characters`); return; }
     try {
       const { error } = await supabase.from('comments').update({ content: editCommentContent.trim() }).eq('id', commentId);
       if (error) throw error;
@@ -226,6 +275,10 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
     return html;
   };
 
+  // Build threaded comments
+  const topLevelComments = comments.filter(c => !c.parent_comment_id);
+  const getReplies = (parentId: string) => comments.filter(c => c.parent_comment_id === parentId);
+
   const authorDisplay = (
     <div className="flex items-center gap-2">
       {user ? (
@@ -249,6 +302,84 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
       </div>
     </div>
   );
+
+  const renderCommentItem = (c: Comment, isReply = false) => {
+    const isCommentAuthor = user?.id === c.author.id;
+    const canEditComment = isMod || (isCommentAuthor && canEditTime(c.created_at));
+    const canDeleteComment = isMod || (isCommentAuthor && canDeleteTime(c.created_at));
+    const isVideo = c.media_url && (c.media_url.includes('.mp4') || c.media_url.includes('.webm') || c.media_url.includes('.mov') || c.media_url.includes('video'));
+
+    return (
+      <div key={c.id} className={`flex gap-2 ${isReply ? 'ml-8' : ''}`}>
+        {user ? (
+          <Link to={`/profile/${c.author.id}`}>
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground font-bold text-xs">
+              {c.author.username.charAt(0).toUpperCase()}
+            </div>
+          </Link>
+        ) : (
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground font-bold text-xs">
+            {c.author.username.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="bg-muted rounded-lg px-3 py-2 flex-1">
+          <div className="flex items-center justify-between">
+            {user ? (
+              <Link to={`/profile/${c.author.id}`} className="text-xs font-semibold hover:underline">{c.author.username}</Link>
+            ) : (
+              <span className="text-xs font-semibold">{c.author.username}</span>
+            )}
+            <div className="flex items-center gap-1">
+              {user && !isReply && (
+                <button onClick={() => { setReplyToId(c.id); setReplyToUsername(c.author.username); }} className="text-muted-foreground hover:text-primary" title="Reply">
+                  <Reply className="h-3 w-3" />
+                </button>
+              )}
+              {canEditComment && (
+                <button onClick={() => { setEditingCommentId(c.id); setEditCommentContent(c.content); }} className="text-muted-foreground hover:text-foreground">
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+              {canDeleteComment && (
+                <button onClick={() => handleDeleteComment(c.id)} className="text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
+              {user && !isCommentAuthor && !isMod && (
+                <button onClick={() => handleReportComment(c.id)} className="text-muted-foreground hover:text-destructive">
+                  <Flag className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+          {editingCommentId === c.id ? (
+            <div className="mt-1 space-y-1">
+              <Textarea value={editCommentContent} onChange={e => setEditCommentContent(e.target.value)} rows={2} className="text-sm" maxLength={MAX_COMMENT_CHARS} />
+              <p className="text-[10px] text-muted-foreground text-right">{editCommentContent.length}/{MAX_COMMENT_CHARS}</p>
+              <div className="flex gap-1">
+                <Button size="sm" variant="default" className="h-6 text-xs" onClick={() => handleSaveCommentEdit(c.id)}>Save</Button>
+                <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingCommentId(null)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm whitespace-pre-wrap">{c.content}</p>
+              {c.media_url && (
+                isVideo ? (
+                  <video src={c.media_url} controls className="w-full rounded max-h-48 mt-1 border" />
+                ) : (
+                  <img src={c.media_url} alt="" className="w-full rounded max-h-48 object-cover mt-1 border" loading="lazy" />
+                )
+              )}
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Card className="shadow-card hover:shadow-card-hover transition-shadow">
@@ -303,9 +434,9 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
         )}
 
         {/* Only show media in expanded view */}
-        {expanded && mediaUrls.length > 0 && (
-          <div className={`grid gap-2 ${mediaUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-            {mediaUrls.map((url, i) => {
+        {expanded && post.image_urls && post.image_urls.length > 0 && (
+          <div className={`grid gap-2 ${post.image_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {post.image_urls.map((url, i) => {
               const isVideo = url.includes('.mp4') || url.includes('.webm') || url.includes('.mov') || url.includes('video');
               return isVideo ? (
                 <video key={i} src={url} controls className="w-full rounded-lg max-h-64 border" />
@@ -344,74 +475,56 @@ const PostCard = ({ post, onUpdate, expanded = false, autoShowComments = false }
 
         {showComments && (
           <div className="space-y-3 pt-2 border-t">
-            {comments.map((c) => {
-              const isCommentAuthor = user?.id === c.author.id;
-              const canEditComment = isMod || (isCommentAuthor && canEditTime(c.created_at));
-              const canDeleteComment = isMod || (isCommentAuthor && canDeleteTime(c.created_at));
-              return (
-                <div key={c.id} className="flex gap-2">
-                  {user ? (
-                    <Link to={`/profile/${c.author.id}`}>
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground font-bold text-xs">
-                        {c.author.username.charAt(0).toUpperCase()}
-                      </div>
-                    </Link>
-                  ) : (
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground font-bold text-xs">
-                      {c.author.username.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="bg-muted rounded-lg px-3 py-2 flex-1">
-                    <div className="flex items-center justify-between">
-                      {user ? (
-                        <Link to={`/profile/${c.author.id}`} className="text-xs font-semibold hover:underline">{c.author.username}</Link>
-                      ) : (
-                        <span className="text-xs font-semibold">{c.author.username}</span>
-                      )}
-                      <div className="flex items-center gap-1">
-                        {canEditComment && (
-                          <button onClick={() => { setEditingCommentId(c.id); setEditCommentContent(c.content); }} className="text-muted-foreground hover:text-foreground">
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                        )}
-                        {canDeleteComment && (
-                          <button onClick={() => handleDeleteComment(c.id)} className="text-muted-foreground hover:text-destructive">
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        )}
-                        {user && !isCommentAuthor && !isMod && (
-                          <button onClick={() => handleReportComment(c.id)} className="text-muted-foreground hover:text-destructive">
-                            <Flag className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {editingCommentId === c.id ? (
-                      <div className="mt-1 space-y-1">
-                        <Textarea value={editCommentContent} onChange={e => setEditCommentContent(e.target.value)} rows={2} className="text-sm" />
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="default" className="h-6 text-xs" onClick={() => handleSaveCommentEdit(c.id)}>Save</Button>
-                          <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingCommentId(null)}>Cancel</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-sm">{c.content}</p>
-                        <p className="text-[10px] text-muted-foreground mt-1">
-                          {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {topLevelComments.map((c) => (
+              <div key={c.id} className="space-y-2">
+                {renderCommentItem(c)}
+                {getReplies(c.id).map(reply => renderCommentItem(reply, true))}
+              </div>
+            ))}
             {user && (
-              <div className="flex gap-2">
-                <Textarea placeholder="Write a comment..." value={newComment} onChange={(e) => setNewComment(e.target.value)} rows={2} className="flex-1" />
-                <Button size="icon" onClick={handleComment} disabled={loadingComment || !newComment.trim()} className="shrink-0 self-end">
-                  <Send className="h-4 w-4" />
-                </Button>
+              <div className="space-y-2">
+                {replyToId && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
+                    <Reply className="h-3 w-3" />
+                    <span>Replying to <strong>{replyToUsername}</strong></span>
+                    <button onClick={() => { setReplyToId(null); setReplyToUsername(''); }} className="ml-auto"><X className="h-3 w-3" /></button>
+                  </div>
+                )}
+                {commentMediaPreview && (
+                  <div className="relative group rounded border overflow-hidden inline-block">
+                    {commentMedia?.type.startsWith('video/') ? (
+                      <video src={commentMediaPreview} controls className="max-h-24" />
+                    ) : (
+                      <img src={commentMediaPreview} alt="" className="max-h-24 object-cover" />
+                    )}
+                    <button onClick={removeCommentMedia} className="absolute top-0.5 right-0.5 bg-background/80 rounded-full p-0.5">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <div className="flex-1 space-y-1">
+                    <Textarea
+                      placeholder={replyToId ? `Reply to ${replyToUsername}...` : 'Write a comment...'}
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      rows={2}
+                      maxLength={MAX_COMMENT_CHARS}
+                    />
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-1">
+                        <input ref={commentFileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" onChange={handleCommentMediaSelect} className="hidden" />
+                        <Button type="button" variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => commentFileRef.current?.click()} disabled={!!commentMedia}>
+                          <ImagePlus className="h-3 w-3" /> Photo/Video
+                        </Button>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{newComment.length}/{MAX_COMMENT_CHARS}</p>
+                    </div>
+                  </div>
+                  <Button size="icon" onClick={handleComment} disabled={loadingComment || (!newComment.trim() && !commentMedia)} className="shrink-0 self-end">
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             )}
           </div>

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { uploadToR2, compressImage } from '@/lib/r2Upload';
+import { uploadFile, compressImage } from '@/lib/supabaseStorage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,7 +36,6 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
-  // Users can add images OR video, not both
   const hasVideo = !!videoFile;
   const hasImages = images.length > 0;
 
@@ -85,24 +84,24 @@ const CreatePostDialog = ({ onPostCreated, defaultCategory }: Props) => {
 
     setLoading(true);
     try {
-      const mediaKeys: string[] = [];
+      const mediaUrls: string[] = [];
 
       for (const img of images) {
         const compressed = await compressImage(img);
-        const key = await uploadToR2(compressed);
-        mediaKeys.push(key);
+        const url = await uploadFile(compressed);
+        mediaUrls.push(url);
       }
 
       if (videoFile) {
-        const key = await uploadToR2(videoFile);
-        mediaKeys.push(key);
+        const url = await uploadFile(videoFile);
+        mediaUrls.push(url);
       }
 
       const { error } = await supabase.from('posts').insert({
         title: title.trim(),
         content: content.trim(),
         author_id: user!.id,
-        image_urls: mediaKeys,
+        image_urls: mediaUrls,
         category,
       });
       if (error) throw error;

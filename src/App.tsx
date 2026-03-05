@@ -14,6 +14,7 @@ import Bookmarks from "./pages/Bookmarks";
 import CategoryFeed from "./pages/CategoryFeed";
 import NotFound from "./pages/NotFound";
 import Moderation from "./pages/Moderation";
+import Privacy from "./pages/Privacy";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ const App = () => (
                   <Route path="/bookmarks" element={<Bookmarks />} />
                   <Route path="/category/:slug" element={<CategoryFeed />} />
                   <Route path="/moderation" element={<Moderation />} />
+                  <Route path="/privacy" element={<Privacy />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </div>

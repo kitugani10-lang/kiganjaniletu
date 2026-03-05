@@ -49,6 +49,8 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          media_url: string | null
+          parent_comment_id: string | null
           post_id: string
         }
         Insert: {
@@ -56,6 +58,8 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          media_url?: string | null
+          parent_comment_id?: string | null
           post_id: string
         }
         Update: {
@@ -63,6 +67,8 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          media_url?: string | null
+          parent_comment_id?: string | null
           post_id?: string
         }
         Relationships: [
@@ -71,6 +77,13 @@ export type Database = {
             columns: ["author_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "comments"
             referencedColumns: ["id"]
           },
           {
@@ -229,6 +242,8 @@ export type Database = {
           first_name: string | null
           gender: string | null
           id: string
+          ip_address: unknown
+          last_login_ip: unknown
           last_name: string | null
           location: string | null
           username: string
@@ -240,6 +255,8 @@ export type Database = {
           first_name?: string | null
           gender?: string | null
           id: string
+          ip_address?: unknown
+          last_login_ip?: unknown
           last_name?: string | null
           location?: string | null
           username: string
@@ -251,6 +268,8 @@ export type Database = {
           first_name?: string | null
           gender?: string | null
           id?: string
+          ip_address?: unknown
+          last_login_ip?: unknown
           last_name?: string | null
           location?: string | null
           username?: string

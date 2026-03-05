@@ -155,9 +155,13 @@ const Auth = () => {
               </Button>
               <p className="text-center text-sm text-muted-foreground">
                 {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-                <button onClick={() => setIsSignUp(!isSignUp)} className="text-primary font-semibold hover:underline">
+              <button onClick={() => setIsSignUp(!isSignUp)} className="text-primary font-semibold hover:underline">
                   {isSignUp ? 'Sign In' : 'Sign Up'}
                 </button>
+              </p>
+              <p className="text-center text-xs text-muted-foreground">
+                By continuing, you agree to our{' '}
+                <a href="/privacy" className="text-primary hover:underline">Privacy Policy</a>
               </p>
             </>
           ) : (
